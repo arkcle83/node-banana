@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { NodeProps, Node } from "@xyflow/react";
 import { NodeShell } from "./NodeShell";
 import { useWorkflowStore } from "@/store/workflowStore";
-import { LLMGenerateNodeData, LLMProvider, LLMModelType } from "@/types";
-import { LLM_PROVIDER_OPTIONS, defaultLLMModel, llmModelLabel, llmModelOptions } from "@/lib/llm/catalog";
+import { LLMGenerateNodeData, NodeLLMProvider, LLMModelType } from "@/types";
+import { NODE_LLM_PROVIDER_OPTIONS, defaultLLMModel, isCustomLLMProvider, llmModelLabel, llmModelOptions } from "@/lib/llm/catalog";
 import { SettingsTabBar } from "./SettingsTabBar";
 import {
   ControlsCard,
@@ -16,6 +16,7 @@ import {
   SelectField,
   Spinner,
   SummaryValues,
+  TextField,
   ellipsisClass,
   type SocketSpec,
 } from "./ui";
@@ -29,8 +30,8 @@ const OUTPUT_SOCKETS: SocketSpec[] = [{ id: "text", type: "text", label: "Text" 
 const DEFAULT_HEIGHT = 160;
 
 /** A provider's glyph for the summary row. */
-function ProviderMark({ provider }: { provider: LLMProvider }) {
-  const letter = provider === "google" ? "G" : provider === "openai" ? "O" : "A";
+function ProviderMark({ provider }: { provider: NodeLLMProvider }) {
+  const letter = provider === "google" ? "G" : provider === "openai" ? "O" : provider === "custom" ? "C" : "A";
   return (
     <span className="w-4 h-4 rounded-full bg-neutral-700 text-neutral-300 text-[9px] font-semibold flex items-center justify-center" aria-hidden>
       {letter}
@@ -84,7 +85,7 @@ export function LLMGenerateNode({ id, data, selected }: NodeProps<LLMGenerateNod
 
   const handleProviderChange = useCallback(
     (value: string) => {
-      const newProvider = value as LLMProvider;
+      const newProvider = value as NodeLLMProvider;
       const firstModelForProvider = defaultLLMModel(newProvider);
       const updates: Partial<LLMGenerateNodeData> = {
         provider: newProvider,
@@ -108,7 +109,8 @@ export function LLMGenerateNode({ id, data, selected }: NodeProps<LLMGenerateNod
   const provider = nodeData.provider || "google";
   const currentModel = nodeData.model || defaultLLMModel(provider);
   const availableModels = llmModelOptions(provider, currentModel);
-  const modelLabel = llmModelLabel(currentModel);
+  const isCustom = isCustomLLMProvider(provider);
+  const modelLabel = isCustom ? currentModel || "Set a model" : llmModelLabel(currentModel);
   const temperature = nodeData.temperature ?? 0.7;
   const maxTokens = nodeData.maxTokens || 2048;
 
@@ -131,8 +133,18 @@ export function LLMGenerateNode({ id, data, selected }: NodeProps<LLMGenerateNod
 
       {settingsTab === "primary" && (
         <>
-          <SelectField label="Provider" value={provider} options={LLM_PROVIDER_OPTIONS} onChange={handleProviderChange} />
-          <SelectField label="Model" value={currentModel} options={availableModels} onChange={handleModelChange} />
+          <SelectField label="Provider" value={provider} options={NODE_LLM_PROVIDER_OPTIONS} onChange={handleProviderChange} />
+          {isCustom ? (
+            <TextField
+              label="Model"
+              hint="The model name your endpoint expects. The endpoint is set in Settings → Providers."
+              value={currentModel}
+              placeholder="e.g. llama3.1:8b"
+              onChange={(value) => handleModelChange(value ?? "")}
+            />
+          ) : (
+            <SelectField label="Model" value={currentModel} options={availableModels} onChange={handleModelChange} />
+          )}
           <RangeField
             label="Temperature"
             value={temperature}

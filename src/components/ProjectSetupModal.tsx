@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { generateWorkflowId, useWorkflowStore } from "@/store/workflowStore";
-import { ProviderType, ProviderSettings, NodeDefaultsConfig, LLMProvider, LLMModelType, EdgeAppearance, EdgeStyle } from "@/types";
+import { ProviderType, ProviderSettings, NodeDefaultsConfig, NodeLLMProvider, LLMModelType, EdgeAppearance, EdgeStyle } from "@/types";
 import { CanvasNavigationSettings, PanMode, ZoomMode, SelectionMode } from "@/types/canvas";
 import { EnvStatusResponse } from "@/app/api/env-status/route";
 import { loadNodeDefaults, saveNodeDefaults, getLastProjectBaseDir, setLastProjectBaseDir, saveEdgeDefaults, getProviderSettings } from "@/store/utils/localStorage";
@@ -44,7 +44,7 @@ import { getLowDetailSettings, setLowDetailEnabled, setLowDetailZoom } from "@/c
 import { getPerfOverlayVisible, setPerfOverlayVisible } from "@/components/PerfOverlay";
 import { ComfyMark } from "@/components/icons/ComfyMark";
 
-import { DEFAULT_LLM_MODEL, LLM_PROVIDER_OPTIONS, defaultLLMModel, llmModelLabel, llmModelOptions } from "@/lib/llm/catalog";
+import { DEFAULT_LLM_MODEL, NODE_LLM_PROVIDER_OPTIONS, defaultLLMModel, llmModelLabel, llmModelOptions } from "@/lib/llm/catalog";
 
 // Provider icons
 const GeminiIcon = () => (
@@ -107,7 +107,7 @@ const SETTINGS_PAGES: { id: SettingsTab; label: string; title: string; descripti
 ];
 
 /** One ruled row per provider on the Providers page, in this order. */
-const PROVIDER_ROWS: { id: ProviderType; name: string; placeholder: string; description?: string }[] = [
+const PROVIDER_ROWS: { id: Exclude<ProviderType, "custom">; name: string; placeholder: string; description?: string }[] = [
   { id: "gemini", name: "Google Gemini", placeholder: "AIza..." },
   { id: "openai", name: "OpenAI", placeholder: "sk-..." },
   // The one Comfy key: Comfy Cloud runs, Comfy-hosted models and partner nodes.
@@ -207,6 +207,7 @@ export function ProjectSetupModal({
     setUseExternalImageStorage,
     providerSettings,
     updateProviderApiKey,
+    updateProviderBaseUrl,
     toggleProvider,
     maxConcurrentCalls,
     setMaxConcurrentCalls,
@@ -249,6 +250,7 @@ export function ProjectSetupModal({
     kie: false,
     wavespeed: false,
     comfy: false,
+    custom: false,
   });
   const [overrideActive, setOverrideActive] = useState<Record<ProviderType, boolean>>({
     gemini: false,
@@ -259,6 +261,7 @@ export function ProjectSetupModal({
     kie: false,
     wavespeed: false,
     comfy: false,
+    custom: false,
   });
   const [envStatus, setEnvStatus] = useState<EnvStatusResponse | null>(null);
 
@@ -308,7 +311,7 @@ export function ProjectSetupModal({
       // Sync local providers state
       editedProviderKeys.current.clear();
       setLocalProviders(providerSettings);
-      setShowApiKey({ gemini: false, openai: false, anthropic: false, replicate: false, fal: false, kie: false, wavespeed: false, comfy: false });
+      setShowApiKey({ gemini: false, openai: false, anthropic: false, replicate: false, fal: false, kie: false, wavespeed: false, comfy: false, custom: false });
       // Initialize override as active if user already has a key set
       setOverrideActive({
         gemini: !!providerSettings.providers.gemini?.apiKey,
@@ -319,6 +322,7 @@ export function ProjectSetupModal({
         kie: !!providerSettings.providers.kie?.apiKey,
         wavespeed: !!providerSettings.providers.wavespeed?.apiKey,
         comfy: !!providerSettings.providers.comfy?.apiKey,
+        custom: !!providerSettings.providers.custom?.apiKey,
       });
       setError(null);
       setFolderConflict(null);
@@ -529,7 +533,7 @@ export function ProjectSetupModal({
 
   const handleSaveProviders = () => {
     // Save each provider's settings
-    const providerIds: ProviderType[] = ["gemini", "openai", "anthropic", "replicate", "fal", "kie", "wavespeed", "comfy"];
+    const providerIds: ProviderType[] = ["gemini", "openai", "anthropic", "replicate", "fal", "kie", "wavespeed", "comfy", "custom"];
     for (const providerId of providerIds) {
       const local = localProviders.providers[providerId];
       const current = providerSettings.providers[providerId];
@@ -544,6 +548,11 @@ export function ProjectSetupModal({
       // Update API key if changed
       if (local.apiKey !== current.apiKey) {
         updateProviderApiKey(providerId, local.apiKey);
+      }
+
+      // Update the endpoint if changed (the OpenAI-compatible provider)
+      if ((local.baseUrl ?? "") !== (current.baseUrl ?? "")) {
+        updateProviderBaseUrl(providerId, local.baseUrl?.trim() ?? "");
       }
     }
     // Clear model/schema caches so the next fetch reflects updated provider keys
@@ -613,7 +622,7 @@ export function ProjectSetupModal({
 
   const updateLocalProvider = (
     providerId: ProviderType,
-    updates: { enabled?: boolean; apiKey?: string | null }
+    updates: { enabled?: boolean; apiKey?: string | null; baseUrl?: string }
   ) => {
     if ('apiKey' in updates) editedProviderKeys.current.add(providerId);
     setLocalProviders((prev) => ({
@@ -860,6 +869,50 @@ export function ProjectSetupModal({
               );
             })}
 
+            {/* The user's own OpenAI-compatible endpoint, for LLM nodes set to "OpenAI-compatible" */}
+            <DialogRow
+              title="OpenAI-compatible · Base URL"
+              description="Ollama, LM Studio, OpenRouter, vLLM… Used by LLM nodes set to OpenAI-compatible."
+              className="py-2"
+            >
+              <TextInput
+                type="url"
+                value={localProviders.providers.custom?.baseUrl || ""}
+                onChange={(e) => updateLocalProvider("custom", { baseUrl: e.target.value })}
+                placeholder="http://localhost:11434/v1"
+                aria-label="OpenAI-compatible base URL"
+                spellCheck={false}
+                className="w-[320px] h-8"
+              />
+            </DialogRow>
+            <DialogRow
+              title="OpenAI-compatible · API key"
+              description="Optional: local servers usually need none."
+              className="py-2"
+            >
+              <div className="grid shrink-0 grid-cols-[220px_44px_56px] items-center gap-x-1.5">
+                <TextInput
+                  type={showApiKey.custom ? "text" : "password"}
+                  value={localProviders.providers.custom?.apiKey || ""}
+                  onChange={(e) => updateLocalProvider("custom", { apiKey: e.target.value || null })}
+                  placeholder="Optional"
+                  aria-label="OpenAI-compatible API key"
+                  className="w-[220px] h-8"
+                />
+                {localProviders.providers.custom?.apiKey ? (
+                  <DialogTextButton
+                    className="justify-self-start"
+                    onClick={() => setShowApiKey((prev) => ({ ...prev, custom: !prev.custom }))}
+                  >
+                    {showApiKey.custom ? "Hide" : "Show"}
+                  </DialogTextButton>
+                ) : (
+                  <span aria-hidden="true" />
+                )}
+                <span aria-hidden="true" />
+              </div>
+            </DialogRow>
+
             <p className="mt-2.5 pt-2.5 border-t border-card text-xs leading-4 text-neutral-500">
               {isDesktop() ? 'Keys are encrypted in your desktop profile. Imported keys are saved immediately.' : <>Add API keys via <code className="px-1 py-0.5 rounded bg-card font-mono text-[11px] text-neutral-400">.env.local</code> for server-side storage. Keys added here override .env and are stored in your browser.</>}
             </p>
@@ -962,9 +1015,9 @@ export function ProjectSetupModal({
                 <Select
                   id="llm-provider"
                   value={llmProvider}
-                  options={LLM_PROVIDER_OPTIONS}
+                  options={NODE_LLM_PROVIDER_OPTIONS}
                   onChange={(next) => {
-                    const newProvider = next as LLMProvider;
+                    const newProvider = next as NodeLLMProvider;
                     const firstModelForProvider = defaultLLMModel(newProvider);
                     const currentTemp = localNodeDefaults.llm?.temperature ?? 0.7;
                     setLocalNodeDefaults(prev => ({
@@ -983,17 +1036,33 @@ export function ProjectSetupModal({
 
               {/* Model dropdown */}
               <Field id="llm-model" label="Model">
-                <Select
-                  id="llm-model"
-                  value={localNodeDefaults.llm?.model || defaultLLMModel(llmProvider)}
-                  options={llmModelOptions(llmProvider, localNodeDefaults.llm?.model)}
-                  onChange={(next) => {
-                    setLocalNodeDefaults(prev => ({
-                      ...prev,
-                      llm: { ...prev.llm, model: next as LLMModelType }
-                    }));
-                  }}
-                />
+                {llmProvider === "custom" ? (
+                  <TextInput
+                    id="llm-model"
+                    type="text"
+                    value={localNodeDefaults.llm?.model || ""}
+                    placeholder="e.g. llama3.1:8b"
+                    onChange={(e) => {
+                      setLocalNodeDefaults(prev => ({
+                        ...prev,
+                        llm: { ...prev.llm, model: e.target.value as LLMModelType }
+                      }));
+                    }}
+                    className="h-8"
+                  />
+                ) : (
+                  <Select
+                    id="llm-model"
+                    value={localNodeDefaults.llm?.model || defaultLLMModel(llmProvider)}
+                    options={llmModelOptions(llmProvider, localNodeDefaults.llm?.model)}
+                    onChange={(next) => {
+                      setLocalNodeDefaults(prev => ({
+                        ...prev,
+                        llm: { ...prev.llm, model: next as LLMModelType }
+                      }));
+                    }}
+                  />
+                )}
               </Field>
 
               {/* Temperature slider */}

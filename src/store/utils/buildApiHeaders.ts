@@ -5,7 +5,7 @@
  * across executeWorkflow and regenerateNode.
  */
 
-import { ProviderType, ProviderSettings, LLMProvider } from "@/types";
+import { ProviderType, ProviderSettings, NodeLLMProvider } from "@/types";
 import { getComfyRouterKey } from "@/lib/providers/comfyRouterKey";
 
 /**
@@ -20,6 +20,7 @@ const PROVIDER_HEADER_MAP: Record<ProviderType, string> = {
   openai: "X-OpenAI-API-Key",
   anthropic: "X-Anthropic-API-Key",
   comfy: "X-Comfy-Router-Key",
+  custom: "X-Custom-LLM-API-Key",
 };
 
 /**
@@ -86,10 +87,11 @@ export function buildModelsApiHeaders(keys: ModelsApiKeys): Record<string, strin
 
 /**
  * Build headers for LLM API calls.
- * Maps LLM provider names ("google", "openai") to their API key headers.
+ * Maps LLM provider names ("google", "openai", "anthropic") to their API key
+ * headers; "custom" sends the OpenAI-compatible endpoint's base URL and key.
  */
 export function buildLlmHeaders(
-  llmProvider: LLMProvider | string,
+  llmProvider: NodeLLMProvider | string,
   providerSettings: ProviderSettings
 ): Record<string, string> {
   const headers: Record<string, string> = {
@@ -110,6 +112,14 @@ export function buildLlmHeaders(
     const anthropicConfig = providerSettings.providers.anthropic;
     if (anthropicConfig?.apiKey) {
       headers["X-Anthropic-API-Key"] = anthropicConfig.apiKey;
+    }
+  } else if (llmProvider === "custom") {
+    const customConfig = providerSettings.providers.custom;
+    if (customConfig?.baseUrl) {
+      headers["X-Custom-LLM-Base-URL"] = customConfig.baseUrl;
+    }
+    if (customConfig?.apiKey) {
+      headers["X-Custom-LLM-API-Key"] = customConfig.apiKey;
     }
   }
 

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchWithRetry, retryTransient } from "@/lib/providers/retry";
 import { GoogleGenAI } from "@google/genai";
 import { LLMGenerateRequest, LLMGenerateResponse } from "@/types";
-import { resolveLLMModel } from "@/lib/llm/catalog";
+import { CUSTOM_LLM_PROVIDER, resolveLLMModel } from "@/lib/llm/catalog";
+import { customChatCompletionsUrl } from "@/lib/llm/customEndpoint";
 import { logger } from "@/utils/logger";
 
 export const maxDuration = 60; // 1 minute timeout
@@ -96,27 +97,30 @@ async function generateWithGoogle(
   return text;
 }
 
-async function generateWithOpenAI(
+const OPENAI_BASE_URL = "https://api.openai.com/v1";
+
+interface OpenAICompatibleTarget {
+  /** Shown in logs and error messages. */
+  label: string;
+  url: string;
+  /** Null sends no Authorization header (a local server with no key). */
+  apiKey: string | null;
+}
+
+async function generateWithOpenAICompatible(
+  target: OpenAICompatibleTarget,
   prompt: string,
   model: string,
   temperature: number,
   maxTokens: number,
   images?: string[],
-  requestId?: string,
-  userApiKey?: string | null
+  requestId?: string
 ): Promise<string> {
-  // User-provided key takes precedence over env variable
-  const apiKey = userApiKey || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    logger.error('api.error', 'OPENAI_API_KEY not configured', { requestId });
-    throw new Error("OPENAI_API_KEY not configured. Add it to .env.local or configure in Settings.");
-  }
+  const { label, url, apiKey } = target;
 
-  const modelId = model;
-
-  logger.info('api.llm', 'Calling OpenAI API', {
+  logger.info('api.llm', `Calling ${label} API`, {
     requestId,
-    model: modelId,
+    model,
     temperature,
     maxTokens,
     imageCount: images?.length || 0,
@@ -138,14 +142,14 @@ async function generateWithOpenAI(
   }
 
   const startTime = Date.now();
-  const response = await fetchWithRetry("https://api.openai.com/v1/chat/completions", {
+  const response = await fetchWithRetry(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
+      ...(apiKey && { "Authorization": `Bearer ${apiKey}` }),
     },
     body: JSON.stringify({
-      model: modelId,
+      model,
       messages: [{ role: "user", content }],
       temperature,
       max_tokens: maxTokens,
@@ -155,29 +159,70 @@ async function generateWithOpenAI(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    logger.error('api.error', 'OpenAI API request failed', {
+    const message = typeof error.error === "string" ? error.error : error.error?.message;
+    logger.error('api.error', `${label} API request failed`, {
       requestId,
       status: response.status,
-      error: error.error?.message,
+      error: message,
     });
-    throw new Error(error.error?.message || `OpenAI API error: ${response.status}`);
+    throw new Error(message || `${label} API error: ${response.status}`);
   }
 
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content;
 
   if (!text) {
-    logger.error('api.error', 'No text in OpenAI response', { requestId });
-    throw new Error("No text in OpenAI response");
+    logger.error('api.error', `No text in ${label} response`, { requestId });
+    throw new Error(`No text in ${label} response`);
   }
 
-  logger.info('api.llm', 'OpenAI API response received', {
+  logger.info('api.llm', `${label} API response received`, {
     requestId,
     duration,
     responseLength: text.length,
   });
 
   return text;
+}
+
+async function generateWithOpenAI(
+  prompt: string,
+  model: string,
+  temperature: number,
+  maxTokens: number,
+  images?: string[],
+  requestId?: string,
+  userApiKey?: string | null
+): Promise<string> {
+  // User-provided key takes precedence over env variable
+  const apiKey = userApiKey || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    logger.error('api.error', 'OPENAI_API_KEY not configured', { requestId });
+    throw new Error("OPENAI_API_KEY not configured. Add it to .env.local or configure in Settings.");
+  }
+
+  return generateWithOpenAICompatible(
+    { label: "OpenAI", url: `${OPENAI_BASE_URL}/chat/completions`, apiKey },
+    prompt, model, temperature, maxTokens, images, requestId
+  );
+}
+
+async function generateWithCustom(
+  prompt: string,
+  model: string,
+  temperature: number,
+  maxTokens: number,
+  images?: string[],
+  requestId?: string,
+  baseUrl?: string | null,
+  userApiKey?: string | null
+): Promise<string> {
+  // The key is optional: local servers (Ollama, LM Studio) take none.
+  const url = customChatCompletionsUrl(baseUrl);
+  return generateWithOpenAICompatible(
+    { label: "OpenAI-compatible endpoint", url, apiKey: userApiKey || null },
+    prompt, model, temperature, maxTokens, images, requestId
+  );
 }
 
 async function generateWithAnthropic(
@@ -280,6 +325,8 @@ export async function POST(request: NextRequest) {
     const geminiApiKey = request.headers.get("X-Gemini-API-Key");
     const openaiApiKey = request.headers.get("X-OpenAI-API-Key");
     const anthropicApiKey = request.headers.get("X-Anthropic-API-Key");
+    const customBaseUrl = request.headers.get("X-Custom-LLM-Base-URL");
+    const customApiKey = request.headers.get("X-Custom-LLM-API-Key");
 
     const body: LLMGenerateRequest = await request.json();
     const {
@@ -310,7 +357,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (provider !== "google" && provider !== "openai" && provider !== "anthropic") {
+    if (provider !== "google" && provider !== "openai" && provider !== "anthropic" && provider !== CUSTOM_LLM_PROVIDER) {
       logger.warn('api.llm', 'Unknown provider requested', { requestId, provider });
       return NextResponse.json<LLMGenerateResponse>(
         { success: false, error: `Unknown provider: ${provider}` },
@@ -323,7 +370,12 @@ export async function POST(request: NextRequest) {
     if (!resolved) {
       logger.warn('api.llm', 'Unknown model requested', { requestId, provider, model });
       return NextResponse.json<LLMGenerateResponse>(
-        { success: false, error: `Unknown model "${model}" for provider ${provider}` },
+        {
+          success: false,
+          error: provider === CUSTOM_LLM_PROVIDER
+            ? "Model name is required for an OpenAI-compatible endpoint"
+            : `Unknown model "${model}" for provider ${provider}`,
+        },
         { status: 400 }
       );
     }
@@ -337,6 +389,8 @@ export async function POST(request: NextRequest) {
       text = await generateWithGoogle(prompt, resolved.apiId, temperature, maxTokens, images, requestId, geminiApiKey);
     } else if (provider === "openai") {
       text = await generateWithOpenAI(prompt, resolved.apiId, temperature, maxTokens, images, requestId, openaiApiKey);
+    } else if (provider === CUSTOM_LLM_PROVIDER) {
+      text = await generateWithCustom(prompt, resolved.apiId, temperature, maxTokens, images, requestId, customBaseUrl, customApiKey);
     } else {
       text = await generateWithAnthropic(prompt, resolved.apiId, temperature, maxTokens, images, requestId, anthropicApiKey);
     }

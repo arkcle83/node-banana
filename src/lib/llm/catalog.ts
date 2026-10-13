@@ -18,6 +18,27 @@ export const LLM_PROVIDER_OPTIONS: { value: LLMProvider; label: string }[] = [
   { value: "anthropic", label: "Anthropic" },
 ];
 
+/**
+ * The user's own OpenAI-compatible endpoint (Ollama, LM Studio, OpenRouter,
+ * vLLM…). Its base URL and key come from Settings and its model id is typed
+ * in, so it has no entries in `LLM_MODELS`. Only the LLM node offers it; the
+ * assistant and the agent keep to the providers above.
+ */
+export const CUSTOM_LLM_PROVIDER = "custom";
+
+/** A provider an LLM node can run on: one of the catalogue's, or the custom endpoint. */
+export type NodeLLMProvider = LLMProvider | typeof CUSTOM_LLM_PROVIDER;
+
+/** `LLM_PROVIDER_OPTIONS` plus the custom endpoint: what the LLM node's provider menus list. */
+export const NODE_LLM_PROVIDER_OPTIONS: { value: NodeLLMProvider; label: string }[] = [
+  ...LLM_PROVIDER_OPTIONS,
+  { value: CUSTOM_LLM_PROVIDER, label: "OpenAI-compatible" },
+];
+
+export function isCustomLLMProvider(provider: string | null | undefined): provider is typeof CUSTOM_LLM_PROVIDER {
+  return provider === CUSTOM_LLM_PROVIDER;
+}
+
 export interface LLMModelEntry {
   /** The id stored in workflows and shown in the dropdown value. */
   id: string;
@@ -101,8 +122,15 @@ export const ASSISTANT_MODEL = "gemini-3.8-flash";
 const currentById = new Map<string, LLMModelEntry>(LLM_MODELS.map((m) => [m.id, m]));
 const legacyById = new Map<string, LegacyLLMModel>(LEGACY_LLM_MODELS.map((m) => [m.id, m]));
 
-/** The first current model for a provider: what a node gets on a provider switch. */
-export function defaultLLMModel(provider: LLMProvider): LLMModelId {
+/**
+ * The first current model for a provider: what a node gets on a provider
+ * switch. The custom endpoint has none (its model is typed in), so it starts
+ * empty.
+ */
+export function defaultLLMModel(provider: LLMProvider): LLMModelId;
+export function defaultLLMModel(provider: NodeLLMProvider): LLMModelType;
+export function defaultLLMModel(provider: NodeLLMProvider): LLMModelType {
+  if (provider === CUSTOM_LLM_PROVIDER) return "";
   const first = LLM_MODELS.find((m) => m.provider === provider);
   if (!first) throw new Error(`No LLM models for provider ${provider}`);
   return first.id;
@@ -122,9 +150,11 @@ export function llmModelLabel(id: string): string {
  * keeps it selectable, labelled as such, until the user picks another.
  */
 export function llmModelOptions(
-  provider: LLMProvider,
+  provider: NodeLLMProvider,
   current?: string | null,
 ): { value: string; label: string }[] {
+  // The custom endpoint's model is free text, so there is no menu.
+  if (provider === CUSTOM_LLM_PROVIDER) return [];
   const options: { value: string; label: string }[] = LLM_MODELS.filter((m) => m.provider === provider).map(
     (m) => ({ value: m.id, label: m.label }),
   );
@@ -142,7 +172,7 @@ export function isCurrentLLMModel(id: string): id is LLMModelId {
 export interface ResolvedLLMModel {
   /** The catalogue id that will run: the requested one, or its replacement. */
   id: string;
-  provider: LLMProvider;
+  provider: NodeLLMProvider;
   label: string;
   /** What to send to the provider API. */
   apiId: string;
@@ -155,7 +185,13 @@ export interface ResolvedLLMModel {
  * accepts. Returns null for an id the catalogue has never seen, or one that
  * belongs to a different provider.
  */
-export function resolveLLMModel(provider: LLMProvider, id: string): ResolvedLLMModel | null {
+export function resolveLLMModel(provider: NodeLLMProvider, id: string): ResolvedLLMModel | null {
+  // The custom endpoint serves whatever the user names; the id goes through untouched.
+  if (provider === CUSTOM_LLM_PROVIDER) {
+    const name = id.trim();
+    return name ? { id: name, provider, label: name, apiId: name } : null;
+  }
+
   const current = currentById.get(id);
   if (current) {
     if (current.provider !== provider) return null;

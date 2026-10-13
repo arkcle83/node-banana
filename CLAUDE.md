@@ -86,6 +86,8 @@ Image generation models (these exist and are recently released):
 
 LLM models are defined once in `src/lib/llm/catalog.ts`: the current list per provider, legacy ids saved workflows may carry, their replacements, and the defaults. Add or retire a model there; every dropdown, `/api/llm` and the assistant read it.
 
+The LLM node also offers an **OpenAI-compatible** provider (`custom`: Ollama, LM Studio, OpenRouter, vLLM…). It has no catalog models: the user types the model name, and the base URL and optional key come from Settings → Providers (`ProviderConfig.baseUrl`, key `provider.custom`), sent to `/api/llm` as `X-Custom-LLM-Base-URL` / `X-Custom-LLM-API-Key` (`customChatCompletionsUrl` in `src/lib/llm/customEndpoint.ts`). Only the LLM node uses it; the assistant and the agent stay on the catalog providers (`NodeLLMProvider` = `LLMProvider | "custom"`).
+
 ## Model catalog
 
 `GET /api/models` lists every provider with a key. Gemini, Kie and OpenAI

@@ -6,7 +6,7 @@
  */
 
 // Provider Types for multi-provider support (image/video generation)
-export type ProviderType = "gemini" | "openai" | "anthropic" | "replicate" | "fal" | "kie" | "wavespeed" | "comfy";
+export type ProviderType = "gemini" | "openai" | "anthropic" | "replicate" | "fal" | "kie" | "wavespeed" | "comfy" | "custom";
 
 // Model pricing info (stored when model is selected)
 export interface SelectedModelPricing {
@@ -29,6 +29,7 @@ export interface ProviderConfig {
   enabled: boolean;
   apiKey: string | null;
   apiKeyEnvVar?: string; // For providers using environment variables (e.g., Gemini)
+  baseUrl?: string; // The "custom" (OpenAI-compatible) provider's endpoint, e.g. http://localhost:11434/v1
 }
 
 export interface ProviderSettings {
@@ -36,7 +37,7 @@ export interface ProviderSettings {
 }
 
 // LLM provider and model ids live in the catalogue; re-exported so `@/types` stays the import path.
-export type { LLMProvider, LLMModelId, LLMModelType } from "@/lib/llm/catalog";
+export type { LLMProvider, NodeLLMProvider, LLMModelId, LLMModelType } from "@/lib/llm/catalog";
 
 // Recently used models tracking
 export interface RecentModel {

@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ASSISTANT_MODEL,
+  CUSTOM_LLM_PROVIDER,
+  NODE_LLM_PROVIDER_OPTIONS,
   DEFAULT_LLM_MODEL,
   DEFAULT_LLM_PROVIDER,
   LEGACY_LLM_MODELS,
@@ -108,5 +110,32 @@ describe("dropdown helpers", () => {
     const text = describeLLMModels();
     for (const m of LLM_MODELS) expect(text).toContain(m.label);
     for (const { label } of LLM_PROVIDER_OPTIONS) expect(text).toContain(`(${label})`);
+  });
+});
+
+describe("custom (OpenAI-compatible) provider", () => {
+  it("is offered to the LLM node but not to the catalogue-driven lists", () => {
+    expect(NODE_LLM_PROVIDER_OPTIONS.map((o) => o.value)).toEqual([...LLM_PROVIDER_OPTIONS.map((o) => o.value), CUSTOM_LLM_PROVIDER]);
+    expect(LLM_PROVIDER_OPTIONS.some((o) => o.value === (CUSTOM_LLM_PROVIDER as string))).toBe(false);
+    expect(LLM_MODELS.some((m) => m.provider === (CUSTOM_LLM_PROVIDER as string))).toBe(false);
+  });
+
+  it("starts with no model and no menu, since the model is typed in", () => {
+    expect(defaultLLMModel(CUSTOM_LLM_PROVIDER)).toBe("");
+    expect(llmModelOptions(CUSTOM_LLM_PROVIDER, "llama3.1:8b")).toEqual([]);
+  });
+
+  it("passes any model name through untouched", () => {
+    expect(resolveLLMModel(CUSTOM_LLM_PROVIDER, "  llama3.1:8b ")).toMatchObject({
+      id: "llama3.1:8b",
+      apiId: "llama3.1:8b",
+      provider: CUSTOM_LLM_PROVIDER,
+    });
+    expect(resolveLLMModel(CUSTOM_LLM_PROVIDER, "gpt-5.6-terra")?.substitution).toBeUndefined();
+  });
+
+  it("rejects an empty model name", () => {
+    expect(resolveLLMModel(CUSTOM_LLM_PROVIDER, "")).toBeNull();
+    expect(resolveLLMModel(CUSTOM_LLM_PROVIDER, "   ")).toBeNull();
   });
 });

@@ -6,7 +6,7 @@
  */
 
 import type { AspectRatio, Resolution, ModelType } from "./models";
-import type { LLMProvider, LLMModelType } from "./providers";
+import type { NodeLLMProvider, LLMModelType } from "./providers";
 
 // API Request/Response types for Image Generation
 export interface GenerateRequest {
@@ -63,7 +63,7 @@ export interface GenerateResponse {
 export interface LLMGenerateRequest {
   prompt: string;
   images?: string[];
-  provider: LLMProvider;
+  provider: NodeLLMProvider;
   model: LLMModelType;
   temperature?: number;
   maxTokens?: number;

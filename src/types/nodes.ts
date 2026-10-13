@@ -18,7 +18,7 @@ export type { AnnotationNodeData, BaseNodeData };
 // Import from domain files to avoid circular dependencies
 import type { ImageGenerationMetadata } from "./api";
 import type { AspectRatio, Resolution, ModelType } from "./models";
-import type { LLMProvider, LLMModelType, SelectedModel, ProviderType } from "./providers";
+import type { NodeLLMProvider, LLMModelType, SelectedModel, ProviderType } from "./providers";
 import type { ComfyAppDefinition, ComfyOutputType, ComfySeedMode, ComfyWorkflowInspection } from "@/lib/comfy/types";
 
 export type { ComfyAppDefinition, ComfyWorkflowInspection };
@@ -332,7 +332,7 @@ export interface LLMGenerateNodeData extends BaseNodeData {
   inputImages: string[];
   inputImageRefs?: string[]; // External image references for storage optimization
   outputText: string | null;
-  provider: LLMProvider;
+  provider: NodeLLMProvider;
   model: LLMModelType;
   temperature: number;
   maxTokens: number;
@@ -861,7 +861,7 @@ export interface GenerateAudioNodeDefaults {
 }
 
 export interface LLMNodeDefaults {
-  provider?: LLMProvider;
+  provider?: NodeLLMProvider;
   model?: LLMModelType;
   temperature?: number;
   maxTokens?: number;

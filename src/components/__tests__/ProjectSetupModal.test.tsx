@@ -16,6 +16,7 @@ vi.mock("@/components/settings/LibrarySettingsTab", () => ({
 const mockSetUseExternalImageStorage = vi.fn();
 const mockUpdateProviderApiKey = vi.fn();
 const mockToggleProvider = vi.fn();
+const mockUpdateProviderBaseUrl = vi.fn();
 const mockUseWorkflowStore = vi.fn();
 
 vi.mock("@/store/workflowStore", () => ({
@@ -85,6 +86,7 @@ const defaultProviderSettings: ProviderSettings = {
     kie: { id: "kie", name: "Kie.ai", enabled: false, apiKey: null },
     wavespeed: { id: "wavespeed", name: "WaveSpeed", enabled: false, apiKey: null },
     comfy: { id: "comfy", name: "ComfyUI", enabled: false, apiKey: null },
+    custom: { id: "custom", name: "OpenAI-compatible", enabled: true, apiKey: null, baseUrl: "" },
   },
 };
 
@@ -97,6 +99,7 @@ const createDefaultState = (overrides = {}) => ({
   providerSettings: defaultProviderSettings,
   setUseExternalImageStorage: mockSetUseExternalImageStorage,
   updateProviderApiKey: mockUpdateProviderApiKey,
+  updateProviderBaseUrl: mockUpdateProviderBaseUrl,
   toggleProvider: mockToggleProvider,
   edgeStyle: "curved",
   edgeAppearance: { thickness: "regular", fadedOpacity: 0.25, gradient: true, loadingPulse: true },
@@ -1315,6 +1318,22 @@ describe("ProjectSetupModal", () => {
         expect(screen.getByText("Using your Comfy key")).toBeInTheDocument();
         expect(screen.getByRole("button", { name: /Change/ })).toBeInTheDocument();
       });
+    });
+
+    it("saves the OpenAI-compatible endpoint's base URL and key", async () => {
+      render(<ProjectSetupModal isOpen={true} onClose={vi.fn()} onSave={vi.fn()} mode="settings" />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Providers" }));
+      await waitFor(() => {
+        expect(screen.getByLabelText("OpenAI-compatible base URL")).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByLabelText("OpenAI-compatible base URL"), { target: { value: " http://localhost:11434/v1 " } });
+      fireEvent.change(screen.getByLabelText("OpenAI-compatible API key"), { target: { value: "local-key" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(mockUpdateProviderBaseUrl).toHaveBeenCalledWith("custom", "http://localhost:11434/v1");
+      expect(mockUpdateProviderApiKey).toHaveBeenCalledWith("custom", "local-key");
     });
 
     it("should show API key inputs for each provider", async () => {

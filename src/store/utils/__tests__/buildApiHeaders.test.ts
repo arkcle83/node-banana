@@ -96,6 +96,22 @@ describe("buildLlmHeaders", () => {
     expect(headers["X-Gemini-API-Key"]).toBeUndefined();
   });
 
+  it("should send the base URL and key for the custom provider", () => {
+    const settings = makeSettings();
+    settings.providers.custom = { id: "custom", name: "OpenAI-compatible", enabled: true, apiKey: "local-key", baseUrl: "http://localhost:11434/v1" };
+    const headers = buildLlmHeaders("custom", settings);
+    expect(headers["X-Custom-LLM-Base-URL"]).toBe("http://localhost:11434/v1");
+    expect(headers["X-Custom-LLM-API-Key"]).toBe("local-key");
+  });
+
+  it("should send only the base URL when the custom provider has no key", () => {
+    const settings = makeSettings();
+    settings.providers.custom = { id: "custom", name: "OpenAI-compatible", enabled: true, apiKey: null, baseUrl: "http://localhost:1234/v1" };
+    const headers = buildLlmHeaders("custom", settings);
+    expect(headers["X-Custom-LLM-Base-URL"]).toBe("http://localhost:1234/v1");
+    expect(headers["X-Custom-LLM-API-Key"]).toBeUndefined();
+  });
+
   it("should handle unknown LLM provider gracefully", () => {
     const headers = buildLlmHeaders("unknown", makeSettings());
     expect(headers).toEqual({ "Content-Type": "application/json" });

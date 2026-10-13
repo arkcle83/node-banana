@@ -585,6 +585,129 @@ describe("/api/llm route", () => {
     });
   });
 
+  describe("custom (OpenAI-compatible) provider", () => {
+    beforeEach(() => {
+      global.fetch = mockFetch;
+    });
+
+    const okResponse = () => ({
+      ok: true,
+      json: () => Promise.resolve({ choices: [{ message: { content: "custom response" } }] }),
+    });
+
+    it("calls the configured endpoint with the typed model name", async () => {
+      mockFetch.mockResolvedValueOnce(okResponse());
+
+      const response = await POST(
+        createMockPostRequest(
+          { prompt: "Test prompt", provider: "custom", model: "llama3.1:8b", temperature: 0.5, maxTokens: 256 },
+          { "X-Custom-LLM-Base-URL": "http://localhost:11434/v1", "X-Custom-LLM-API-Key": "local-key" }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data).toMatchObject({ success: true, text: "custom response", model: "llama3.1:8b" });
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://localhost:11434/v1/chat/completions",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer local-key" },
+          body: JSON.stringify({
+            model: "llama3.1:8b",
+            messages: [{ role: "user", content: "Test prompt" }],
+            temperature: 0.5,
+            max_tokens: 256,
+          }),
+        })
+      );
+    });
+
+    it("sends no Authorization header when no key is set, and ignores OPENAI_API_KEY", async () => {
+      process.env.OPENAI_API_KEY = "must-not-leak";
+      mockFetch.mockResolvedValueOnce(okResponse());
+
+      const response = await POST(
+        createMockPostRequest(
+          { prompt: "Hi", provider: "custom", model: "qwen3" },
+          { "X-Custom-LLM-Base-URL": "http://localhost:1234/v1" }
+        )
+      );
+
+      expect(response.status).toBe(200);
+      const [, init] = mockFetch.mock.calls[0];
+      expect(init.headers).toEqual({ "Content-Type": "application/json" });
+    });
+
+    it("sends images in the OpenAI vision format", async () => {
+      mockFetch.mockResolvedValueOnce(okResponse());
+
+      await POST(
+        createMockPostRequest(
+          { prompt: "Describe", images: ["data:image/png;base64,AAAA"], provider: "custom", model: "llava" },
+          { "X-Custom-LLM-Base-URL": "http://localhost:11434/v1" }
+        )
+      );
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages[0].content).toEqual([
+        { type: "text", text: "Describe" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+      ]);
+    });
+
+    it("rejects a missing base URL without calling out", async () => {
+      const response = await POST(createMockPostRequest({ prompt: "Hi", provider: "custom", model: "llama3.1:8b" }));
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.error).toContain("Set its base URL in Settings");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("rejects a non-http base URL", async () => {
+      const response = await POST(
+        createMockPostRequest(
+          { prompt: "Hi", provider: "custom", model: "m" },
+          { "X-Custom-LLM-Base-URL": "file:///etc/passwd" }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.error).toContain("http:// or https://");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("requires a model name", async () => {
+      const response = await POST(
+        createMockPostRequest(
+          { prompt: "Hi", provider: "custom", model: "" },
+          { "X-Custom-LLM-Base-URL": "http://localhost:11434/v1" }
+        )
+      );
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toContain("Model name is required");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("surfaces the endpoint's error message, string or object", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, json: () => Promise.resolve({ error: { message: "model not found" } }) });
+      let response = await POST(
+        createMockPostRequest({ prompt: "Hi", provider: "custom", model: "nope" }, { "X-Custom-LLM-Base-URL": "http://localhost:11434/v1" })
+      );
+      expect((await response.json()).error).toBe("model not found");
+
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 400, json: () => Promise.resolve({ error: "bad request" }) });
+      response = await POST(
+        createMockPostRequest({ prompt: "Hi", provider: "custom", model: "nope" }, { "X-Custom-LLM-Base-URL": "http://localhost:11434/v1" })
+      );
+      expect((await response.json()).error).toBe("bad request");
+    });
+  });
+
   describe("Anthropic provider", () => {
     beforeEach(() => {
       global.fetch = mockFetch;

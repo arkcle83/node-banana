@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { atomicWrite } = require('./files.cjs');
 const credentialNames = new Set([
-  ...['gemini', 'openai', 'anthropic', 'replicate', 'fal', 'kie', 'wavespeed'].map(id => `provider.${id}`),
+  ...['gemini', 'openai', 'anthropic', 'replicate', 'fal', 'kie', 'wavespeed', 'custom'].map(id => `provider.${id}`),
   ...['cloudApiKey', 'remoteApiKey', 'comfyOrgApiKey', 'cloudUrl', 'localUrl', 'remoteUrl'].map(id => `comfy.${id}`),
 ]);
 function validateCredentials(value) {

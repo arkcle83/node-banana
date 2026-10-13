@@ -7,7 +7,7 @@
 
 import type {
   LLMGenerateNodeData,
-  LLMProvider,
+  NodeLLMProvider,
   LLMModelType,
   SelectedModel,
   ProviderType,
@@ -27,12 +27,13 @@ export interface LlmGenerateOptions {
  * /api/llm route). Gemini is persisted as "gemini" in SelectedModel but the LLM
  * API knows it as "google". Other providers share names.
  */
-function providerTypeToLlmProvider(p: ProviderType): LLMProvider {
+function providerTypeToLlmProvider(p: ProviderType): NodeLLMProvider {
   if (p === "gemini") return "google";
   if (p === "openai") return "openai";
   if (p === "anthropic") return "anthropic";
+  if (p === "custom") return "custom";
   // Unsupported provider for LLM — caller will surface an error from /api/llm.
-  return p as unknown as LLMProvider;
+  return p as unknown as NodeLLMProvider;
 }
 
 export async function executeLlmGenerate(
